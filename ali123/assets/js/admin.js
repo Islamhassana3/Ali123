@@ -54,9 +54,9 @@
                             ${Object.values(data).map((row) => `
                                 <tr>
                                     <td>${row.id}</td>
-                                    <td>${row.ali_id}</td>
+                                    <td>${row.payload && row.payload.ali_id ? row.payload.ali_id : 'N/A'}</td>
                                     <td>${row.status}</td>
-                                    <td>${new Date(row.scheduled_time * 1000).toLocaleString()}</td>
+                                    <td>${row.scheduled_at ? new Date(row.scheduled_at.replace(' ', 'T')).toLocaleString() : 'N/A'}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
