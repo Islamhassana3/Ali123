@@ -132,7 +132,10 @@ class Import_Queue_Store {
         if ( isset( $data['payload'] ) ) {
             $encoded_payload = wp_json_encode( $data['payload'] );
             if ( false === $encoded_payload ) {
-                return null;
+                return new \WP_Error(
+                    'import_queue_store_json_encode_failed',
+                    'Failed to encode payload as JSON in Import_Queue_Store::update().'
+                );
             }
 
             $fields['payload'] = $encoded_payload;
