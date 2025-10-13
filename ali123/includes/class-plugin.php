@@ -32,6 +32,7 @@ class Plugin {
      * Activate callback.
      */
     public static function activate() : void {
+        ( new Import_Queue_Store() )->install();
         add_filter( 'cron_schedules', [ Job_Runner::class, 'register_intervals' ] );
         if ( ! wp_next_scheduled( Job_Runner::CRON_HOOK ) ) {
             wp_schedule_event( time() + MINUTE_IN_SECONDS, 'five_minutes', Job_Runner::CRON_HOOK );
@@ -82,8 +83,12 @@ class Plugin {
             );
         } );
 
+        $this->container->singleton( Import_Queue_Store::class, static function () {
+            return new Import_Queue_Store();
+        } );
+
         $this->container->singleton( Import_Service::class, function ( Service_Container $c ) {
-            return new Import_Service( $c->get( Job_Runner::class ) );
+            return new Import_Service( $c->get( Job_Runner::class ), $c->get( Import_Queue_Store::class ) );
         } );
 
         $this->container->singleton( Fulfillment_Service::class, static function () {

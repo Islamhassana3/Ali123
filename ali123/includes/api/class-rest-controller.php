@@ -102,6 +102,10 @@ class Rest_Controller {
     public function queue_import( WP_REST_Request $request ) {
         $data = $this->import_service->queue_import( $request->get_json_params() );
 
+        if ( is_wp_error( $data ) ) {
+            return $data;
+        }
+
         return new WP_REST_Response( $data, 201 );
     }
 

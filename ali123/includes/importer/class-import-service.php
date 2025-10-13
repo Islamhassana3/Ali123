@@ -1,19 +1,20 @@
 <?php
 namespace Ali123\Importer;
 
+use Ali123\Exceptions\Ali123_Exception;
+use Ali123\Importer\Import_Queue_Store;
 use Ali123\Importer\Pricing_Rules_Engine;
 use Ali123\Importer\Product_Mapper;
 use Ali123\Scheduler\Job_Runner;
-use Ali123\Exceptions\Ali123_Exception;
 use function __;
 use function Ali123\deep_sanitize_text_field;
+use function get_current_blog_id;
 use WP_Error;
 
 /**
  * Handles import queue and product synchronization.
  */
 class Import_Service {
-    const OPTION_QUEUE = 'ali123_import_queue';
 
     /**
      * Background job runner.
@@ -37,10 +38,18 @@ class Import_Service {
     protected $product_mapper;
 
     /**
+     * Queue persistence layer.
+     *
+     * @var Import_Queue_Store
+     */
+    protected $queue_store;
+
+    /**
      * Constructor.
      */
-    public function __construct( Job_Runner $job_runner ) {
+    public function __construct( Job_Runner $job_runner, Import_Queue_Store $queue_store ) {
         $this->job_runner     = $job_runner;
+        $this->queue_store    = $queue_store;
         $this->pricing_engine = new Pricing_Rules_Engine();
         $this->product_mapper = new Product_Mapper();
 
@@ -50,21 +59,20 @@ class Import_Service {
     /**
      * Retrieve queue entries.
      */
-    public function get_queue() : array {
-        return get_option( self::OPTION_QUEUE, [] );
+    public function get_queue( array $args = [] ) : array {
+        return $this->queue_store->all( $args );
     }
 
     /**
      * Queue a new import.
      *
      * @param array $payload Import payload.
+     *
+     * @return array|WP_Error
      */
-    public function queue_import( array $payload ) : array {
-        $queue     = $this->get_queue();
-        $id        = $this->generate_id( $queue );
-        $defaults  = get_option( 'ali123_defaults', [] );
-        $payload   = wp_parse_args( $payload, [
-            'id'             => $id,
+    public function queue_import( array $payload ) {
+        $defaults = get_option( 'ali123_defaults', [] );
+        $payload  = wp_parse_args( $payload, [
             'ali_id'         => '',
             'status'         => $defaults['status'] ?? 'draft',
             'visibility'     => $defaults['visibility'] ?? 'visible',
@@ -75,45 +83,66 @@ class Import_Service {
             'meta'           => [],
             'scheduled_time' => time(),
         ] );
+
         $payload = deep_sanitize_text_field( $payload );
         $payload['meta']['created_at'] = current_time( 'mysql' );
 
-        $queue[ $id ] = $payload;
-        update_option( self::OPTION_QUEUE, $queue, false );
+        $entry = $this->queue_store->add(
+            $payload,
+            [
+                'scheduled_at' => $payload['scheduled_time'] ?? time(),
+                'store_id'     => $payload['meta']['store_id'] ?? get_current_blog_id(),
+            ]
+        );
+
+        if ( ! $entry ) {
+            return new WP_Error( 'ali123_queue_error', __( 'Unable to queue import entry.', 'ali123' ) );
+        }
 
         $this->job_runner->ensure_schedule();
 
-        return $payload;
+        return $entry;
     }
 
     /**
      * Update queue entry.
      */
     public function update_import( int $id, array $data ) {
-        $queue = $this->get_queue();
-        if ( ! isset( $queue[ $id ] ) ) {
+        $entry = $this->queue_store->get( $id );
+        if ( ! $entry ) {
             return new WP_Error( 'ali123_import_missing', __( 'Import entry not found.', 'ali123' ) );
         }
 
-        $queue[ $id ] = array_merge( $queue[ $id ], deep_sanitize_text_field( $data ) );
-        update_option( self::OPTION_QUEUE, $queue, false );
+        $data = deep_sanitize_text_field( $data );
 
-        return $queue[ $id ];
+        if ( isset( $data['scheduled_time'] ) ) {
+            $data['scheduled_at'] = $data['scheduled_time'];
+            unset( $data['scheduled_time'] );
+        }
+
+        if ( isset( $data['payload'] ) && is_array( $data['payload'] ) ) {
+            $data['payload'] = array_merge( $entry['payload'], $data['payload'] );
+        }
+
+        $updated = $this->queue_store->update( $id, $data );
+
+        if ( ! $updated ) {
+            return new WP_Error( 'ali123_import_update_failed', __( 'Unable to update import entry.', 'ali123' ) );
+        }
+
+        return $updated;
     }
 
     /**
      * Delete queue entry.
      */
     public function delete_import( int $id ) {
-        $queue = $this->get_queue();
-        if ( ! isset( $queue[ $id ] ) ) {
+        $entry = $this->queue_store->get( $id );
+        if ( ! $entry ) {
             return new WP_Error( 'ali123_import_missing', __( 'Import entry not found.', 'ali123' ) );
         }
 
-        unset( $queue[ $id ] );
-        update_option( self::OPTION_QUEUE, $queue, false );
-
-        return true;
+        return $this->queue_store->delete( $id );
     }
 
     /**
@@ -131,26 +160,24 @@ class Import_Service {
      * Process queue.
      */
     public function process_queue() : void {
-        $queue = $this->get_queue();
-        if ( empty( $queue ) ) {
-            return;
-        }
+        $processed = 0;
 
-        foreach ( $queue as $id => $payload ) {
-            if ( $payload['scheduled_time'] > time() ) {
-                continue;
+        do {
+            $batch = $this->queue_store->claim_due( 25 );
+            if ( empty( $batch ) ) {
+                break;
             }
 
-            $result = $this->import_product( $payload );
-            if ( is_wp_error( $result ) ) {
-                $queue[ $id ]['error']        = $result->get_error_message();
-                $queue[ $id ]['last_attempt'] = current_time( 'mysql' );
-            } else {
-                unset( $queue[ $id ] );
+            foreach ( $batch as $entry ) {
+                $result = $this->import_product( $entry['payload'] );
+                if ( is_wp_error( $result ) ) {
+                    $this->queue_store->mark_failed( $entry['id'], $result->get_error_message() );
+                } else {
+                    $this->queue_store->mark_completed( $entry['id'] );
+                }
+                $processed++;
             }
-        }
-
-        update_option( self::OPTION_QUEUE, $queue, false );
+        } while ( $processed < 100 );
     }
 
     /**
@@ -163,15 +190,4 @@ class Import_Service {
         return $this->product_mapper->sync_to_store( $priced );
     }
 
-    /**
-     * Generate unique ID.
-     */
-    protected function generate_id( array $queue ) : int {
-        $id = time();
-        while ( isset( $queue[ $id ] ) ) {
-            $id++;
-        }
-
-        return $id;
-    }
 }
