@@ -9,9 +9,16 @@
 
 echo "=== Ali123 Plugin Test Suite ===\n\n";
 
+// Determine plugin directory path
+$plugin_dir = getenv('PLUGIN_DIR') ?: dirname(__DIR__, 2) . '/ali123';
+if (!is_dir($plugin_dir)) {
+    echo "Error: Plugin directory not found at: $plugin_dir\n";
+    echo "Set PLUGIN_DIR environment variable or run from correct location.\n";
+    exit(1);
+}
+
 // Test 1: Check all PHP files for syntax errors
 echo "Test 1: PHP Syntax Check\n";
-$plugin_dir = '/home/runner/work/Ali123/Ali123/ali123';
 $php_files = new RecursiveIteratorIterator(
     new RecursiveDirectoryIterator($plugin_dir),
     RecursiveIteratorIterator::SELF_FIRST

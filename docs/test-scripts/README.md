@@ -83,6 +83,17 @@ These scripts can run **without WordPress installed**. They perform static analy
 - PHP 7.4 or higher
 - Access to the plugin files
 
+**Plugin Directory:**
+Scripts automatically detect the plugin directory using:
+1. `PLUGIN_DIR` environment variable (if set)
+2. Relative path from script location (default)
+
+To run from any location, set the environment variable:
+```bash
+export PLUGIN_DIR=/path/to/Ali123/ali123
+php test-ali123-plugin.php
+```
+
 ## Understanding Test Output
 
 ### Success Indicators

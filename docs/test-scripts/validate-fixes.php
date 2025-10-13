@@ -8,7 +8,14 @@
 
 echo "=== Ali123 Bug Fix Validation ===\n\n";
 
-$plugin_dir = '/home/runner/work/Ali123/Ali123/ali123';
+// Determine plugin directory path
+$plugin_dir = getenv('PLUGIN_DIR') ?: dirname(__DIR__, 2) . '/ali123';
+if (!is_dir($plugin_dir)) {
+    echo "Error: Plugin directory not found at: $plugin_dir\n";
+    echo "Set PLUGIN_DIR environment variable or run from correct location.\n";
+    exit(1);
+}
+
 $all_fixed = true;
 
 // Bug 1: Missing Import_Queue_Store use statement
@@ -50,7 +57,7 @@ echo "\n";
 
 // Additional validation: Check for proper datetime handling
 echo "Additional Check: Datetime handling in JavaScript\n";
-if (strpos($js_file, "replace(' ', 'T')") !== false || strpos($js_file, "replace(' ', 'T')" !== false)) {
+if (strpos($js_file, "replace(' ', 'T')") !== false) {
     echo "  ✓ GOOD: Datetime conversion implemented for MySQL format\n";
 } else if (strpos($js_file, 'new Date(row.scheduled_at') !== false) {
     echo "  ⚠ WARNING: Datetime conversion may not handle MySQL format correctly\n";

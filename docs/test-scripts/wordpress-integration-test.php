@@ -8,7 +8,13 @@
 
 echo "=== Ali123 WordPress Integration Tests ===\n\n";
 
-$plugin_dir = '/home/runner/work/Ali123/Ali123/ali123';
+// Determine plugin directory path
+$plugin_dir = getenv('PLUGIN_DIR') ?: dirname(__DIR__, 2) . '/ali123';
+if (!is_dir($plugin_dir)) {
+    echo "Error: Plugin directory not found at: $plugin_dir\n";
+    echo "Set PLUGIN_DIR environment variable or run from correct location.\n";
+    exit(1);
+}
 
 // Test 1: Validate activation hook compatibility
 echo "Test 1: Activation Hook Validation\n";
