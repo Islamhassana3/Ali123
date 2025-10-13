@@ -337,7 +337,19 @@ class Import_Queue_Store {
         $row['id']       = (int) $row['id'];
         $row['store_id'] = (int) $row['store_id'];
         $row['attempts'] = (int) $row['attempts'];
-        $row['payload']  = $row['payload'] ? json_decode( $row['payload'], true ) : [];
+        if ( $row['payload'] ) {
+            $decoded = json_decode( $row['payload'], true );
+            if ( is_array( $decoded ) ) {
+                $row['payload'] = $decoded;
+            } else {
+                // Handle JSON decode error: set to empty array
+                $row['payload'] = [];
+                // Optionally, log the error or add an error key for debugging
+                // $row['payload']['_json_error'] = json_last_error_msg();
+            }
+        } else {
+            $row['payload'] = [];
+        }
         if ( is_array( $row['payload'] ) ) {
             $row['payload']['id'] = $row['id'];
         }
